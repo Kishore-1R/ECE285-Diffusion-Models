@@ -1,0 +1,3 @@
+[submodule "external/segment-anything"]
+	path = external/segment-anything
+	url = https://github.com/facebookresearch/segment-anything.git
