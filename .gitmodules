@@ -2,6 +2,3 @@
 	path = external/segment-anything
 	url = https://github.com/facebookresearch/segment-anything.git
 
-[submodule "external/guided-diffusion"]
-	path = external/guided-diffusion
-	url = https://github.com/openai/guided-diffusion.git
