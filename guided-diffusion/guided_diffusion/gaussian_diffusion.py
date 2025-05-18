@@ -10,6 +10,7 @@ import math
 
 import numpy as np
 import torch as th
+import tqdm
 
 from .nn import mean_flat
 from .losses import normal_kl, discretized_gaussian_log_likelihood
@@ -135,7 +136,7 @@ class GaussianDiffusion:
         assert len(betas.shape) == 1, "betas must be 1-D"
         assert (betas > 0).all() and (betas <= 1).all()
 
-        self.num_timesteps = int(betas.shape[0])
+        _timesteps = int(betas.shape[0])
 
         alphas = 1.0 - betas
         self.alphas_cumprod = np.cumprod(alphas, axis=0)
@@ -534,6 +535,90 @@ class GaussianDiffusion:
                 yield out
                 img = out["sample"]
 
+    def custom_sample_loop(
+        self,
+        model,
+        shape,
+        noise=None,
+        measurement=None,
+        mask=None,
+        clip_denoised=True,
+        denoised_fn=None,
+        cond_fn=None,
+        model_kwargs=None,
+        device=None,
+        progress=False,
+    ):
+        """
+        Generate samples from the model and yield intermediate samples from
+        each timestep of diffusion.
+
+        Arguments are the same as p_sample_loop().
+        Returns a generator over dicts, where each dict is the return value of
+        p_sample().
+        """
+
+        if device is None:
+            device = next(model.parameters()).device
+        assert isinstance(shape, (tuple, list))
+        if noise is not None:
+            x = noise
+        else:
+            x = th.randn(*shape, device=device)
+
+        xs = [x]  # list of all intermediate steps
+
+        masked_input = measurement.detach()
+
+        T_sampling = 20
+        skip = self.num_timesteps // T_sampling
+
+        # generate time schedule
+        times = range(0, 1000, skip)
+        times_next = [-1] + list(times[:-1])
+        times_pair = zip(reversed(times), reversed(times_next))
+
+        betas = th.from_numpy(self.betas).float().to(x.device)
+
+        # reverse diffusion sampling
+        for i, j in tqdm.tqdm(times_pair, total=len(times)):
+            t = (i).to(x.device)
+            next_t = (j).to(x.device)
+
+            abar_t = th.from_numpy(self.alphas_cumprod[i]).float().to(x.device)
+            bt = betas[i]
+            bt_prev = betas[j]
+            at = 1 - bt
+            eta = 0.15
+
+            xt = xs[-1].to(x.device)
+            
+            U = 10
+            for u in range(U):
+                # 0. NFE
+                with th.no_grad():
+                    et = model(xt, t)
+                # et = et[:, :et.size(1)//2]
+
+                # 1. Renoise
+                eps = th.randn_like(xt)
+                xt_prev_known = abar_t.sqrt() * masked_input + (1 - abar_t).sqrt() * eps
+
+                # 2. Denoising
+                z = th.randn_like(xt)
+                xt_prev_unknown = (xt - (bt * et / (1 - abar_t).sqrt())) / at.sqrt() + (eta * bt * z)
+
+                # 3. Mask
+                xt_prev = mask * xt_prev_known + (1 - mask) * xt_prev_unknown
+
+                if u < U and t > 1:
+                    xt = th.randn_like(xt) * bt_prev + np.sqrt(1 - bt_prev) * xt_prev
+
+            xs.append(xt_prev.to('cpu'))
+
+        return xs[-1], xs
+            
+
     def ddim_sample(
         self,
         model,
@@ -576,7 +661,7 @@ class GaussianDiffusion:
         noise = th.randn_like(x)
         mean_pred = (
             out["pred_xstart"] * th.sqrt(alpha_bar_prev)
-            + th.sqrt(1 - alpha_bar_prev - sigma ** 2) * eps
+            + th.sqrt(1 - alpha_bar_prev - sigma**2) * eps
         )
         nonzero_mask = (
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
