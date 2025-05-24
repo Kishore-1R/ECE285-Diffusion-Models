@@ -9,7 +9,7 @@ from einops import rearrange
 import torch as th
 import torch.distributed as dist
 import random
-from PIL import Image
+import global_vars as gv
 
 import sys
 
@@ -85,18 +85,28 @@ def main():
     # Load image
     img_path = "data/elephant.jpg"
     img_tensor = load_and_resize_image(img_path, save_resized=True).to(device)
-    img_tensor = normalize_image(img_tensor)
     print("Loaded image successfully...")  # C, H, W
 
-    # # Generate random mask
-    # mask = generate_random_mask(img_tensor.shape, pixel_ratio=0.5).to(device)
-    # maskedInput = mask * img_tensor
-    # save_tensor_as_image(maskedInput, "data/masked_sample.png")
+    mask_type = gv.mask_type
 
-    # Generate square mask
-    mask = generate_center_mask(img_tensor.shape).to(device)
-    maskedInput = mask * img_tensor
+    if mask_type == "random":
+        # Generate random mask
+        mask = generate_random_mask(img_tensor.shape, pixel_ratio=0.5).to(device)
+        maskedInput = mask * img_tensor
+    elif mask_type == "center":
+        # Generate square mask
+        mask = generate_center_mask(img_tensor.shape).to(device)
+        maskedInput = mask * img_tensor
+    elif mask_type == "nomask":
+        # No input image
+        maskedInput = th.zeros((1, 3, 256, 256), device=device)  # or just None if your loop allows
+        mask = th.zeros_like(maskedInput)  # all 0s = everything unknown
+
+    save_tensor_as_image(mask, "data/mask.png")
     save_tensor_as_image(maskedInput, "data/masked_center_sample.png")
+ 
+    # Normalize after saving masked image
+    maskedInput = normalize_image(maskedInput)
 
     model_kwargs = {}
     if args.class_cond:
@@ -104,6 +114,9 @@ def main():
             low=0, high=NUM_CLASSES, size=(args.batch_size,), device=dist_util.dev()
         )
         model_kwargs["y"] = classes
+
+    model_kwargs["U"] = gv.U
+    model_kwargs["eta"] = gv.eta
 
     sample, x_evol = diffusion.custom_sample_loop(
         model,

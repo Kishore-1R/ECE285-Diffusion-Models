@@ -582,6 +582,8 @@ class GaussianDiffusion:
         betas = th.from_numpy(self.betas).float().to(x.device)
         alphas_cumprod = th.from_numpy(self.alphas_cumprod).float().to(device)
 
+        print("betas, alphas_cumprod: ", self.betas[0:5], self.alphas_cumprod[:5])
+
         # reverse diffusion sampling
         for i, j in tqdm.tqdm(times_pair, total=len(times)):
             t = th.full(
@@ -595,13 +597,16 @@ class GaussianDiffusion:
 
             xt = xs[-1].to(device)
 
-            U = 10
-            eta = 0.15
+            U = model_kwargs.get("U", None)
+            eta = model_kwargs.get("eta", None)
 
             for u in range(U):
                 with th.no_grad():
                     et = model(xt, t)
                 et = et[:, : et.size(1) // 2]
+
+                # Debugger
+                print("et range:", et.min().item(), et.max().item())
 
                 # Step 1: Renoise known image
                 eps = th.randn_like(xt)
@@ -615,7 +620,10 @@ class GaussianDiffusion:
                     at
                 ) + eta * bt * z
 
-                xt_prev = mask * xt_prev_known + (1.0 - mask) * xt_prev_unknown
+                # Debugger
+                # xt_prev = mask * xt_prev_known + (1.0 - mask) * xt_prev_unknown
+                xt_prev = (1 / th.sqrt(at)) * (xt - ((1 - abar_t).sqrt() * et))
+
 
                 if u < U and i > 1:
                     xt = th.sqrt(1.0 - bt_prev) * xt_prev + bt_prev * th.randn_like(xt)
