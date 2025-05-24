@@ -604,14 +604,11 @@ class GaussianDiffusion:
                 with th.no_grad():
                     et = model(xt, t)
                 et = et[:, : et.size(1) // 2]
-
-                # Debugger
-                print("et range:", et.min().item(), et.max().item())
-
+                
                 # Step 1: Renoise known image
                 eps = th.randn_like(xt)
                 xt_prev_known = (
-                    th.sqrt(abar_t) * masked_input + th.sqrt(1.0 - abar_t) * eps
+                    th.sqrt(abar_t) * masked_input + (1.0 - abar_t) * eps
                 )  # added square root: not in paper
 
                 # Step 2: Denoise
@@ -620,10 +617,7 @@ class GaussianDiffusion:
                     at
                 ) + eta * bt * z
 
-                # Debugger
-                # xt_prev = mask * xt_prev_known + (1.0 - mask) * xt_prev_unknown
-                xt_prev = (1 / th.sqrt(at)) * (xt - ((1 - abar_t).sqrt() * et))
-
+                xt_prev = mask * xt_prev_known + (1.0 - mask) * xt_prev_unknown
 
                 if u < U and i > 1:
                     xt = th.sqrt(1.0 - bt_prev) * xt_prev + bt_prev * th.randn_like(xt)
