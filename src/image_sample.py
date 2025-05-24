@@ -5,9 +5,11 @@ Sample from the diffusion model conditioning on the available image
 import argparse
 import os
 import numpy as np
+from einops import rearrange
 import torch as th
 import torch.distributed as dist
 import random
+from PIL import Image
 
 import sys
 
@@ -22,8 +24,24 @@ from guided_diffusion.script_util import (
     add_dict_to_argparser,
     args_to_dict,
 )
-from mask_generator import generate_random_mask
-from dataloader import load_and_resize_image, save_tensor_as_image
+from mask_generator import generate_random_mask, generate_center_mask
+from dataloader import (
+    load_and_resize_image,
+    save_tensor_as_image,
+    save_tensor_to_gif,
+)
+
+
+def unnormalize_img(t):
+    # Unnormalize the image tensor to the range [0, 1]
+    # Assuming the input tensor is in the range [-1, 1]
+    return (t + 1) * 0.5
+
+
+def normalize_image(t):
+    # Normalize the image tensor to the range [-1. 1]
+    # Assuming the input tensor is in the range [0. 1]
+    return (2 * t) - 1
 
 
 def set_random_seed(seed):
@@ -67,11 +85,18 @@ def main():
     # Load image
     img_path = "data/elephant.jpg"
     img_tensor = load_and_resize_image(img_path, save_resized=True).to(device)
-    print("Loaded image successfully...")
+    img_tensor = normalize_image(img_tensor)
+    print("Loaded image successfully...")  # C, H, W
 
-    # Generate random mask
-    mask = generate_random_mask(img_tensor.shape, pixel_ratio=0.5).to(device)
-    save_tensor_as_image(mask * img_tensor, "data/masked_sample.png")
+    # # Generate random mask
+    # mask = generate_random_mask(img_tensor.shape, pixel_ratio=0.5).to(device)
+    # maskedInput = mask * img_tensor
+    # save_tensor_as_image(maskedInput, "data/masked_sample.png")
+
+    # Generate square mask
+    mask = generate_center_mask(img_tensor.shape).to(device)
+    maskedInput = mask * img_tensor
+    save_tensor_as_image(maskedInput, "data/masked_center_sample.png")
 
     model_kwargs = {}
     if args.class_cond:
@@ -79,47 +104,33 @@ def main():
             low=0, high=NUM_CLASSES, size=(args.batch_size,), device=dist_util.dev()
         )
         model_kwargs["y"] = classes
-    # sample_fn = (
-    #     diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
-    # )
 
-    sample = sample_fn(
+    sample, x_evol = diffusion.custom_sample_loop(
         model,
         (args.batch_size, 3, args.image_size, args.image_size),
+        measurement=maskedInput,
+        mask=mask,
         clip_denoised=args.clip_denoised,
         model_kwargs=model_kwargs,
     )
-    sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
-    sample = sample.permute(0, 2, 3, 1)
-    sample = sample.contiguous()
 
-    gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
-    dist.all_gather(gathered_samples, sample)  # gather not supported with NCCL
-    all_images.extend([sample.cpu().numpy() for sample in gathered_samples])
-    if args.class_cond:
-        gathered_labels = [
-            th.zeros_like(classes) for _ in range(dist.get_world_size())
-        ]
-        dist.all_gather(gathered_labels, classes)
-        all_labels.extend([labels.cpu().numpy() for labels in gathered_labels])
-    logger.log(f"created {len(all_images) * args.batch_size} samples")
+    # === Save Final Sample Image ===
+    save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "results"))
+    sample = unnormalize_img(th.clamp(sample[0], -1, 1))  # sample was B, T, H, W
+    save_tensor_as_image(sample, os.path.join(save_dir, "sample.png"))
+    
+    # === Save Evolution GIF ===
+    x_evol = [x_tensor.cpu() for x_tensor in x_evol]
+    preds_tensor = th.cat(x_evol, dim=0)  # shape: (T, 3, H, W)
+    preds_tensor = rearrange(preds_tensor, "t c h w -> c t h w")
+    preds_tensor = th.clamp(preds_tensor, -1, 1)
+    save_tensor_to_gif(
+        unnormalize_img(preds_tensor), os.path.join(save_dir, "evolution.gif")
+    )
 
-    arr = np.concatenate(all_images, axis=0)
-    arr = arr[: args.num_samples]
-    if args.class_cond:
-        label_arr = np.concatenate(all_labels, axis=0)
-        label_arr = label_arr[: args.num_samples]
-    if dist.get_rank() == 0:
-        shape_str = "x".join([str(x) for x in arr.shape])
-        out_path = os.path.join(logger.get_dir(), f"samples_{shape_str}.npz")
-        logger.log(f"saving to {out_path}")
-        if args.class_cond:
-            np.savez(out_path, arr, label_arr)
-        else:
-            np.savez(out_path, arr)
-
+    # No need to gather full array or save .npz unless required
     dist.barrier()
-    logger.log("sampling complete")
+    print("Sampling and saving complete.")
 
 
 def create_argparser():

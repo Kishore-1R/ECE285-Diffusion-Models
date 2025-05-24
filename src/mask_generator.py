@@ -28,3 +28,32 @@ def generate_random_mask(shape, pixel_ratio):
     mask = mask.expand(C, H, W)
     
     return mask
+
+
+def generate_center_mask(shape, box_size=100):
+    """
+    Generates a binary mask with a centered square of ones.
+
+    Args:
+        shape (tuple): Shape of the mask (C, H, W) or (1, C, H, W).
+        box_size (int): Size of the central square to unmask (1s). Default: 100
+
+    Returns:
+        torch.Tensor: Binary mask of shape (C, H, W)
+    """
+    if len(shape) == 4:
+        _, C, H, W = shape
+    elif len(shape) == 3:
+        C, H, W = shape
+    else:
+        raise ValueError("Unsupported shape: expected (C, H, W) or (1, C, H, W)")
+
+    mask = torch.ones((C, H, W), dtype=torch.float32)
+
+    y0 = (H - box_size) // 2
+    x0 = (W - box_size) // 2
+    y1 = y0 + box_size
+    x1 = x0 + box_size
+
+    mask[:, y0:y1, x0:x1] = 0.0
+    return mask

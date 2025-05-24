@@ -136,7 +136,7 @@ class GaussianDiffusion:
         assert len(betas.shape) == 1, "betas must be 1-D"
         assert (betas > 0).all() and (betas <= 1).all()
 
-        _timesteps = int(betas.shape[0])
+        self.num_timesteps = int(betas.shape[0])
 
         alphas = 1.0 - betas
         self.alphas_cumprod = np.cumprod(alphas, axis=0)
@@ -566,8 +566,9 @@ class GaussianDiffusion:
         else:
             x = th.randn(*shape, device=device)
 
-        xs = [x]  # list of all intermediate steps
-
+        # xs = [x.to("cpu")]  # list of all intermediate steps
+        xs = [x]
+        
         masked_input = measurement.detach()
 
         T_sampling = 20
@@ -579,45 +580,50 @@ class GaussianDiffusion:
         times_pair = zip(reversed(times), reversed(times_next))
 
         betas = th.from_numpy(self.betas).float().to(x.device)
+        alphas_cumprod = th.from_numpy(self.alphas_cumprod).float().to(device)
 
         # reverse diffusion sampling
         for i, j in tqdm.tqdm(times_pair, total=len(times)):
-            t = (i).to(x.device)
-            next_t = (j).to(x.device)
+            t = th.full(
+                (shape[0],), i, device=device, dtype=th.long
+            )  # batch-wise timestep
 
-            abar_t = th.from_numpy(self.alphas_cumprod[i]).float().to(x.device)
+            abar_t = alphas_cumprod[i]
             bt = betas[i]
-            bt_prev = betas[j]
-            at = 1 - bt
+            bt_prev = betas[j] if j >= 0 else th.tensor(0.0, device=device)
+            at = 1.0 - bt
+
+            xt = xs[-1].to(device)
+
+            U = 10
             eta = 0.15
 
-            xt = xs[-1].to(x.device)
-            
-            U = 10
             for u in range(U):
-                # 0. NFE
                 with th.no_grad():
                     et = model(xt, t)
-                # et = et[:, :et.size(1)//2]
+                et = et[:, : et.size(1) // 2]
 
-                # 1. Renoise
+                # Step 1: Renoise known image
                 eps = th.randn_like(xt)
-                xt_prev_known = abar_t.sqrt() * masked_input + (1 - abar_t).sqrt() * eps
+                xt_prev_known = (
+                    th.sqrt(abar_t) * masked_input + th.sqrt(1.0 - abar_t) * eps
+                )  # added square root: not in paper
 
-                # 2. Denoising
+                # Step 2: Denoise
                 z = th.randn_like(xt)
-                xt_prev_unknown = (xt - (bt * et / (1 - abar_t).sqrt())) / at.sqrt() + (eta * bt * z)
+                xt_prev_unknown = (xt - (bt * et / th.sqrt(1.0 - abar_t))) / th.sqrt(
+                    at
+                ) + eta * bt * z
 
-                # 3. Mask
-                xt_prev = mask * xt_prev_known + (1 - mask) * xt_prev_unknown
+                xt_prev = mask * xt_prev_known + (1.0 - mask) * xt_prev_unknown
 
-                if u < U and t > 1:
-                    xt = th.randn_like(xt) * bt_prev + np.sqrt(1 - bt_prev) * xt_prev
+                if u < U and i > 1:
+                    xt = th.sqrt(1.0 - bt_prev) * xt_prev + bt_prev * th.randn_like(xt)
 
-            xs.append(xt_prev.to('cpu'))
+            # xs.append(xt_prev.cpu())
+            xs.append(xt_prev)
 
         return xs[-1], xs
-            
 
     def ddim_sample(
         self,

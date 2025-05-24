@@ -1,7 +1,9 @@
-import cv2
 import numpy as np
+from PIL import Image
+import cv2
 import torch
 import os
+from torchvision import transforms as T
 
 
 def load_and_resize_image(img_path, save_resized=False, save_path=None):
@@ -58,3 +60,27 @@ def save_tensor_as_image(tensor, save_path):
     # Convert RGB to BGR for OpenCV
     img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
     cv2.imwrite(save_path, img_bgr)
+
+
+def tensor_to_numpy_image(tensor):
+    """Convert a torch tensor (B, C, H, W) in [-1, 1] or [0, 255] to uint8 RGB HWC."""
+    tensor = tensor.detach().cpu()
+    if tensor.max() <= 1.0:
+        tensor = ((tensor + 1) * 127.5).clamp(0, 255)
+    array = tensor.to(torch.uint8).permute(0, 2, 3, 1).numpy()  # BHWC
+    return array[0]
+
+
+# tensor of shape (channels, frames, height, width) -> gif
+def save_tensor_to_gif(tensor, path, duration=250, loop=0, optimize=True):
+    images = map(T.ToPILImage(), tensor.unbind(dim=1))
+    first_img, *rest_imgs = images
+    first_img.save(
+        path,
+        save_all=True,
+        append_images=rest_imgs,
+        duration=duration,
+        loop=loop,
+        optimize=optimize,
+    )
+    return images
