@@ -95,11 +95,11 @@ def main():
         maskedInput = mask * img_tensor
     elif mask_type == "center":
         # Generate square mask
-        mask = generate_center_mask(img_tensor.shape).to(device)
+        mask = generate_center_mask(img_tensor.shape, box_size=50).to(device)
         maskedInput = mask * img_tensor
     elif mask_type == "nomask":
         # No input image
-        maskedInput = th.zeros((1, 3, 256, 256), device=device)  # or just None if your loop allows
+        maskedInput = th.zeros((3, 256, 256), device=device)  # or just None if your loop allows
         mask = th.zeros_like(maskedInput)  # all 0s = everything unknown
 
     save_tensor_as_image(mask, "data/mask.png")
@@ -117,8 +117,9 @@ def main():
 
     model_kwargs["U"] = gv.U
     model_kwargs["eta"] = gv.eta
+    model_kwargs["T_sampling"] = gv.T_sampling
 
-    sample, x_evol = diffusion.custom_sample_loop(
+    sample, x_evol, x_unknown_evol = diffusion.custom_sample_loop(
         model,
         (args.batch_size, 3, args.image_size, args.image_size),
         measurement=maskedInput,
@@ -141,9 +142,20 @@ def main():
         unnormalize_img(preds_tensor), os.path.join(save_dir, "evolution.gif")
     )
 
+    # === Save Unknown Part's Evolution GIF ===
+    x_unknown_evol = [x_tensor.cpu() for x_tensor in x_unknown_evol]
+    unknown_preds = th.cat(x_unknown_evol, dim=0)  # shape: (T, 3, H, W)
+    unknown_preds = rearrange(unknown_preds, "t c h w -> c t h w")
+    unknown_preds = th.clamp(unknown_preds, -1, 1)
+    save_tensor_to_gif(
+        unnormalize_img(unknown_preds), os.path.join(save_dir, "unknown_region.gif")
+    )
+
     # No need to gather full array or save .npz unless required
     dist.barrier()
     print("Sampling and saving complete.")
+
+
 
 
 def create_argparser():

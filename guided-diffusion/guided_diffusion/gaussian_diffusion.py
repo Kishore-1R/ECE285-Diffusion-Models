@@ -535,6 +535,11 @@ class GaussianDiffusion:
                 yield out
                 img = out["sample"]
 
+    def compute_alpha(self, beta, t):
+        beta = th.cat([th.zeros(1).to(beta.device), beta], dim=0)
+        a = (1 - beta).cumprod(dim=0).index_select(0, t + 1).view(-1, 1, 1, 1)
+        return a
+
     def custom_sample_loop(
         self,
         model,
@@ -558,6 +563,10 @@ class GaussianDiffusion:
         p_sample().
         """
 
+        U = model_kwargs.get("U", None)
+        eta = model_kwargs.get("eta", None)
+        T_sampling = model_kwargs.get("T_sampling", None)
+
         if device is None:
             device = next(model.parameters()).device
         assert isinstance(shape, (tuple, list))
@@ -568,64 +577,73 @@ class GaussianDiffusion:
 
         # xs = [x.to("cpu")]  # list of all intermediate steps
         xs = [x]
+        xs_unknown = []
         
         masked_input = measurement.detach()
 
-        T_sampling = 20
-        skip = self.num_timesteps // T_sampling
-
         # generate time schedule
+        skip = self.num_timesteps // T_sampling
         times = range(0, 1000, skip)
         times_next = [-1] + list(times[:-1])
         times_pair = zip(reversed(times), reversed(times_next))
 
         betas = th.from_numpy(self.betas).float().to(x.device)
-        alphas_cumprod = th.from_numpy(self.alphas_cumprod).float().to(device)
-
-        print("betas, alphas_cumprod: ", self.betas[0:5], self.alphas_cumprod[:5])
-
+        
         # reverse diffusion sampling
         for i, j in tqdm.tqdm(times_pair, total=len(times)):
             t = th.full(
                 (shape[0],), i, device=device, dtype=th.long
             )  # batch-wise timestep
+            t_next = th.full(
+                (shape[0],), j, device=device, dtype=th.long
+            )  # batch-wise timestep
 
-            abar_t = alphas_cumprod[i]
+            abar_t = self.compute_alpha(betas, t.long())
+            abar_t_next = self.compute_alpha(betas, t_next.long())
             bt = betas[i]
-            bt_prev = betas[j] if j >= 0 else th.tensor(0.0, device=device)
-            at = 1.0 - bt
+            # bt_prev = betas[j] 
 
             xt = xs[-1].to(device)
 
-            U = model_kwargs.get("U", None)
-            eta = model_kwargs.get("eta", None)
-
-            for u in range(U):
+            for u in range(1, U+1):
                 with th.no_grad():
                     et = model(xt, t)
                 et = et[:, : et.size(1) // 2]
                 
                 # Step 1: Renoise known image
-                eps = th.randn_like(xt)
+                if j != 0:
+                    eps = th.randn_like(xt)
+                else: eps = 0
                 xt_prev_known = (
                     th.sqrt(abar_t) * masked_input + (1.0 - abar_t) * eps
-                )  # added square root: not in paper
+                )  
 
                 # Step 2: Denoise
-                z = th.randn_like(xt)
-                xt_prev_unknown = (xt - (bt * et / th.sqrt(1.0 - abar_t))) / th.sqrt(
-                    at
-                ) + eta * bt * z
+                # z = th.randn_like(xt)
+                # xt_prev_unknown = (xt - (bt * et / th.sqrt(1.0 - abar_t))) / th.sqrt(
+                #     at
+                # ) + eta * bt * z
+                x0_t = (xt - et * (1 - abar_t).sqrt()) / abar_t.sqrt()
+                noise = th.randn_like(x0_t)
+                c1 = (1 - abar_t_next).sqrt() * eta
+                c2 = (1 - abar_t_next).sqrt() * ((1 - eta**2) ** 0.5)
 
+                if j != 0:
+                    xt_prev_unknown = abar_t_next.sqrt() * x0_t + c1 * noise + c2 * et
+                else:
+                    xt_prev_unknown = x0_t + c2 * et
+
+                # Step 3: Add known and unknown
                 xt_prev = mask * xt_prev_known + (1.0 - mask) * xt_prev_unknown
+                xs_unknown.append((1.0 - mask) * xt_prev_unknown)
 
                 if u < U and i > 1:
-                    xt = th.sqrt(1.0 - bt_prev) * xt_prev + bt_prev * th.randn_like(xt)
+                    xt = th.sqrt(1.0 - bt) * xt_prev + bt * th.randn_like(xt)
 
             # xs.append(xt_prev.cpu())
             xs.append(xt_prev)
 
-        return xs[-1], xs
+        return xs[-1], xs, xs_unknown
 
     def ddim_sample(
         self,
