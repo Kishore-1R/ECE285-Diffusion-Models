@@ -631,7 +631,7 @@ class GaussianDiffusion:
                 if j != 0:
                     xt_prev_unknown = abar_t_next.sqrt() * x0_t + c1 * noise + c2 * et
                 else:
-                    xt_prev_unknown = x0_t + c2 * et
+                    xt_prev_unknown = x0_t 
 
                 # Step 3: Add known and unknown
                 xt_prev = mask * xt_prev_known + (1.0 - mask) * xt_prev_unknown
