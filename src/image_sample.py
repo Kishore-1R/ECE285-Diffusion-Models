@@ -115,6 +115,7 @@ def main():
         )
         model_kwargs["y"] = classes
 
+    model_kwargs["sampler_type"] = "ddpm" if args.use_ddpm else "ddim"
     model_kwargs["U"] = gv.U
     model_kwargs["eta"] = gv.eta
     model_kwargs["T_sampling"] = gv.T_sampling
@@ -142,14 +143,14 @@ def main():
         unnormalize_img(preds_tensor), os.path.join(save_dir, "evolution.gif")
     )
 
-    # === Save Unknown Part's Evolution GIF ===
-    x_unknown_evol = [x_tensor.cpu() for x_tensor in x_unknown_evol]
-    unknown_preds = th.cat(x_unknown_evol, dim=0)  # shape: (T, 3, H, W)
-    unknown_preds = rearrange(unknown_preds, "t c h w -> c t h w")
-    unknown_preds = th.clamp(unknown_preds, -1, 1)
-    save_tensor_to_gif(
-        unnormalize_img(unknown_preds), os.path.join(save_dir, "unknown_region.gif")
-    )
+    # # === Save Unknown Part's Evolution GIF ===
+    # x_unknown_evol = [x_tensor.cpu() for x_tensor in x_unknown_evol]
+    # unknown_preds = th.cat(x_unknown_evol, dim=0)  # shape: (T, 3, H, W)
+    # unknown_preds = rearrange(unknown_preds, "t c h w -> c t h w")
+    # unknown_preds = th.clamp(unknown_preds, -1, 1)
+    # save_tensor_to_gif(
+    #     unnormalize_img(unknown_preds), os.path.join(save_dir, "unknown_region.gif")
+    # )
 
     # No need to gather full array or save .npz unless required
     dist.barrier()
@@ -163,7 +164,7 @@ def create_argparser():
         clip_denoised=True,
         num_samples=1000,
         batch_size=16,
-        use_ddim=False,
+        use_ddpm=True,
         model_path="",
     )
     defaults.update(model_and_diffusion_defaults())

@@ -566,6 +566,7 @@ class GaussianDiffusion:
         U = model_kwargs.get("U", None)
         eta = model_kwargs.get("eta", None)
         T_sampling = model_kwargs.get("T_sampling", None)
+        sampler_type = model_kwargs.get("sampler_type", "ddpm")  # default to ddpm
 
         if device is None:
             device = next(model.parameters()).device
@@ -575,19 +576,19 @@ class GaussianDiffusion:
         else:
             x = th.randn(*shape, device=device)
 
-        # xs = [x.to("cpu")]  # list of all intermediate steps
         xs = [x]
         xs_unknown = []
         
         masked_input = measurement.detach()
 
         # generate time schedule
-        skip = self.num_timesteps // T_sampling
-        times = range(0, 1000, skip)
+        times = range(0, self.num_timesteps)  # Use all timesteps for DDPM
         times_next = [-1] + list(times[:-1])
         times_pair = zip(reversed(times), reversed(times_next))
 
         betas = th.from_numpy(self.betas).float().to(x.device)
+
+        print("sampler type: ", sampler_type)
         
         # reverse diffusion sampling
         for i, j in tqdm.tqdm(times_pair, total=len(times)):
@@ -601,47 +602,75 @@ class GaussianDiffusion:
             abar_t = self.compute_alpha(betas, t.long())
             abar_t_next = self.compute_alpha(betas, t_next.long())
             bt = betas[i]
-            # bt_prev = betas[j] 
 
             xt = xs[-1].to(device)
 
             for u in range(1, U+1):
                 with th.no_grad():
-                    et = model(xt, t)
-                et = et[:, : et.size(1) // 2]
+                    model_output = model(xt, t)
+                    et = model_output[:, : model_output.shape[1] // 2]
+                    model_var_values = model_output[:, 4:]
                 
                 # Step 1: Renoise known image
                 if j != 0:
                     eps = th.randn_like(xt)
-                else: eps = 0
-                xt_prev_known = (
+                else: 
+                    eps = 0
+                xt_next_known = (
                     th.sqrt(abar_t) * masked_input + (1.0 - abar_t) * eps
-                )  
+                )
 
                 # Step 2: Denoise
-                # z = th.randn_like(xt)
-                # xt_prev_unknown = (xt - (bt * et / th.sqrt(1.0 - abar_t))) / th.sqrt(
-                #     at
-                # ) + eta * bt * z
-                x0_t = (xt - et * (1 - abar_t).sqrt()) / abar_t.sqrt()
-                noise = th.randn_like(x0_t)
-                c1 = (1 - abar_t_next).sqrt() * eta
-                c2 = (1 - abar_t_next).sqrt() * ((1 - eta**2) ** 0.5)
-
-                if j != 0:
-                    xt_prev_unknown = abar_t_next.sqrt() * x0_t + c1 * noise + c2 * et
+                if sampler_type == "ddpm":
+                    # DDPM denoising using RePaint's approach
+                    alpha_t = 1 - bt
+                    
+                    # # Process model's variance prediction
+                    # if self.model_var_type == ModelVarType.LEARNED:
+                    #     # Direct prediction of variance
+                    #     model_log_variance = model_var_values
+                    #     model_variance = th.exp(model_log_variance)
+                    # else:
+                    #     # The model_var_values predicts a value between -1 and 1
+                    #     # that is used to interpolate between min_log and max_log
+                    #     min_log = th.log(th.tensor(self.posterior_variance[t.long()]))
+                    #     max_log = th.log(th.tensor(self.betas[t.long()]))
+                    #     # The model_var_values is [-1, 1] for [min_var, max_var]
+                    #     frac = (model_var_values + 1) / 2
+                    #     model_log_variance = frac * max_log + (1 - frac) * min_log
+                    #     model_variance = th.exp(model_log_variance)
+                    
+                    # Use the predicted variance instead of fixed beta
+                    # sigma_t = model_variance.sqrt()
+                    sigma_t = th.sqrt(bt)
+                    
+                    factor1 = 1 / alpha_t.sqrt()
+                    factor2 = (1 - alpha_t) / (1 - abar_t).sqrt()
+                    noise = th.randn_like(xt) if j != 0 else 0
+                    
+                    xt_next_unknown = factor1 * (xt - factor2 * et) + sigma_t * noise
                 else:
-                    xt_prev_unknown = x0_t 
+                    # DDIM denoising (keeping as fallback)
+                    x0_t = (xt - et * (1 - abar_t).sqrt()) / abar_t.sqrt()
+                    noise = th.randn_like(x0_t)
+                    c1 = (1 - abar_t_next).sqrt() * eta
+                    c2 = (1 - abar_t_next).sqrt() * ((1 - eta**2) ** 0.5)
+
+                    if j != 0:
+                        xt_next_unknown = abar_t_next.sqrt() * x0_t + c1 * noise + c2 * et
+                    else:
+                        xt_next_unknown = x0_t 
 
                 # Step 3: Add known and unknown
-                xt_prev = mask * xt_prev_known + (1.0 - mask) * xt_prev_unknown
-                xs_unknown.append((1.0 - mask) * xt_prev_unknown)
+                xt_next = mask * xt_next_known + (1.0 - mask) * xt_next_unknown
 
                 if u < U and i > 1:
-                    xt = th.sqrt(1.0 - bt) * xt_prev + bt * th.randn_like(xt)
-
-            # xs.append(xt_prev.cpu())
-            xs.append(xt_prev)
+                    # Renoising step using RePaint's approach
+                    noise = th.randn_like(xt)
+                    xt = th.sqrt(1 - bt) * xt_next + th.sqrt(bt) * noise
+                    # xt = th.sqrt(1 - bt) * xt_next + bt * noise
+            
+            xs.append(xt_next)
 
         return xs[-1], xs, xs_unknown
 
