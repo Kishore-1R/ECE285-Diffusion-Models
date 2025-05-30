@@ -609,7 +609,6 @@ class GaussianDiffusion:
                 with th.no_grad():
                     model_output = model(xt, t)
                     et = model_output[:, : model_output.shape[1] // 2]
-                    model_var_values = model_output[:, 4:]
                 
                 # Step 1: Renoise known image
                 if j != 0:
@@ -625,23 +624,6 @@ class GaussianDiffusion:
                     # DDPM denoising using RePaint's approach
                     alpha_t = 1 - bt
                     
-                    # # Process model's variance prediction
-                    # if self.model_var_type == ModelVarType.LEARNED:
-                    #     # Direct prediction of variance
-                    #     model_log_variance = model_var_values
-                    #     model_variance = th.exp(model_log_variance)
-                    # else:
-                    #     # The model_var_values predicts a value between -1 and 1
-                    #     # that is used to interpolate between min_log and max_log
-                    #     min_log = th.log(th.tensor(self.posterior_variance[t.long()]))
-                    #     max_log = th.log(th.tensor(self.betas[t.long()]))
-                    #     # The model_var_values is [-1, 1] for [min_var, max_var]
-                    #     frac = (model_var_values + 1) / 2
-                    #     model_log_variance = frac * max_log + (1 - frac) * min_log
-                    #     model_variance = th.exp(model_log_variance)
-                    
-                    # Use the predicted variance instead of fixed beta
-                    # sigma_t = model_variance.sqrt()
                     sigma_t = th.sqrt(bt)
                     
                     factor1 = 1 / alpha_t.sqrt()
