@@ -22,17 +22,21 @@ from segment_anything import sam_model_registry, SamPredictor
 import cv2
 
 class MaskSelector:
-    def __init__(self, data_dir, results_dir):
+    def __init__(self, data_dir, results_dir, dilation_size=5):
         """
         Initialize MaskSelector with data and results directories
         
         Args:
             data_dir (Path): Directory containing input images
             results_dir (Path): Directory to save results
+            dilation_size (int): Size of the kernel used to dilate the mask (odd number)
         """
         self.data_dir = Path(data_dir)
         self.results_dir = Path(results_dir) / "inpainting_tests"
         self.results_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Ensure dilation size is odd
+        self.dilation_size = dilation_size if dilation_size % 2 == 1 else dilation_size + 1
         
         # Get all image files (both png and jpg)
         self.image_files = sorted(list(self.data_dir.glob("image_*.[pj][np][g]*")))
@@ -49,25 +53,52 @@ class MaskSelector:
         self.sam.to(device)
         self.predictor = SamPredictor(self.sam)
 
-    def load_image(self, image_path):
-        """Load image regardless of format"""
+    def load_image(self, image_path, image_size=256):
+        """Load image regardless of format and resize to square"""
         try:
             with Image.open(image_path) as img:
                 # Convert to RGB if needed
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
-                return np.array(img)
+                    
+                # Resize maintaining aspect ratio and center crop
+                old_size = img.size
+                ratio = float(image_size)/max(old_size)
+                new_size = tuple([int(x*ratio) for x in old_size])
+                img = img.resize(new_size, Image.Resampling.LANCZOS)
+                
+                # Center pad to desired size
+                new_img = Image.new("RGB", (image_size, image_size), (0,0,0))
+                new_img.paste(img, ((image_size-new_size[0])//2, (image_size-new_size[1])//2))
+                
+                return np.array(new_img)
+                
         except Exception as e:
             print(f"PIL failed to load image, trying OpenCV: {e}")
             
-        # Fallback to OpenCV
-        try:
-            img = cv2.imread(str(image_path))
-            if img is None:
-                raise ValueError(f"Failed to load image: {image_path}")
-            return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        except Exception as e:
-            raise ValueError(f"Failed to load image with both PIL and OpenCV: {e}")
+            # Fallback to OpenCV
+            try:
+                img = cv2.imread(str(image_path))
+                if img is None:
+                    raise ValueError(f"Failed to load image: {image_path}")
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                
+                # Resize maintaining aspect ratio
+                h, w = img.shape[:2]
+                ratio = float(image_size)/max(h, w)
+                new_size = (int(w*ratio), int(h*ratio))
+                img = cv2.resize(img, new_size, interpolation=cv2.INTER_LANCZOS4)
+                
+                # Center pad
+                new_img = np.zeros((image_size, image_size, 3), dtype=np.uint8)
+                y_offset = (image_size - new_size[1])//2
+                x_offset = (image_size - new_size[0])//2
+                new_img[y_offset:y_offset+new_size[1], x_offset:x_offset+new_size[0]] = img
+                
+                return new_img
+                
+            except Exception as e:
+                raise ValueError(f"Failed to load image with both PIL and OpenCV: {e}")
 
     def save_results(self, image, mask, image_name):
         image_dir = self.results_dir / image_name
@@ -76,11 +107,23 @@ class MaskSelector:
         # Save original image
         Image.fromarray(image).save(image_dir / "original.png")
         
-        # Invert the mask (1 - mask) so that:
-        # 0 = object to remove/inpaint
+        # Convert mask to uint8 (where 1s are the object selected by SAM)
+        mask_uint8 = (mask * 255).astype(np.uint8)
+        
+        # Create kernel for dilation
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, 
+                                         (self.dilation_size, self.dilation_size))
+        
+        # Dilate the mask (expanding the 1s/object region)
+        dilated = cv2.dilate(mask_uint8, kernel, iterations=1)
+        
+        # Now invert the dilated mask so that:
+        # 0 = expanded object to remove/inpaint
         # 1 = keep this part of the image
-        inverted_mask = (1 - mask) * 255
-        mask_image = Image.fromarray(inverted_mask.astype(np.uint8))
+        final_mask = 255 - dilated
+        
+        # Save the mask
+        mask_image = Image.fromarray(final_mask.astype(np.uint8))
         mask_image.save(image_dir / "mask.png")
         print(f"Saved to {image_dir}")
 
@@ -188,8 +231,9 @@ def main():
     """Main function to run the mask selector"""
     data_dir = Path("data")
     results_dir = Path("results")
+    dilation_size = 5  # Can be adjusted as needed
     
-    selector = MaskSelector(data_dir, results_dir)
+    selector = MaskSelector(data_dir, results_dir, dilation_size=dilation_size)
     selector.process_all_images()
 
 if __name__ == "__main__":
