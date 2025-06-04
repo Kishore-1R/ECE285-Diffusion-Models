@@ -1,61 +1,41 @@
-# RePaint Implementation with DDPM and DDIM
+# RePaint Implementation with DDIM Sampling
 
-This project implements image inpainting using diffusion models, specifically implementing the RePaint approach along with DDIM sampling. We build upon the guided-diffusion framework to create a robust inpainting solution that can handle arbitrary masks.
+This branch implements image inpainting using diffusion models with a focus on DDIM (Denoising Diffusion Implicit Models) sampling for faster inference. We build upon the guided-diffusion framework and integrate SAM (Segment Anything Model) for interactive mask generation.
 
-## Project Overview
+## Branch Overview
 
-Our implementation focuses on two key aspects:
-1. **RePaint Implementation**: We implement from scratch the RePaint algorithm which uses a resampling strategy to improve inpainting quality. The key innovation is in the sampling process where we resample certain timesteps (controlled by parameter U) to better handle the inpainting mask.
-2. **DDIM Integration**: In addition to RePaint's DDPM-based sampling, we also implement DDIM (Denoising Diffusion Implicit Models) sampling for faster inference while maintaining quality.
+This DDIM branch offers:
+1. **Fast Inference**: Using DDIM sampling with configurable steps (20-200 steps vs 1000 steps in DDPM)
+2. **Quality Control**: Adjustable parameters for balancing speed and quality
+3. **Interactive Masking**: Integration with SAM for easy object removal
 
-### Technical Details
+### Key Features
 
-The core of our implementation lies in the `gaussian_diffusion.py` module where we implement:
+1. **DDIM Sampling**:
+   - Configurable number of sampling steps (T=20 to 200)
+   - Adjustable number of iterations (U=1 to 10)
+   - Deterministic sampling path
+   - Significantly faster than DDPM (which requires 1000 steps)
 
-1. **Custom Sampling Loop**: 
-   - Implements both DDPM and DDIM sampling strategies
-   - Handles masked inputs for inpainting
-   - Supports resampling steps (U parameter) for better mask handling
-   - Uses fp16 (half precision) for faster computation
-
-2. **Mask Handling**:
-   - Integrates with Segment Anything Model (SAM) for interactive mask generation
-   - Implements mask dilation to better handle object boundaries
-   - Supports arbitrary mask shapes and sizes
-
-3. **Sampling Strategies**:
-   - DDPM with resampling (RePaint's core algorithm)
-   - DDIM for faster sampling
-   - Configurable number of sampling steps and resampling factor U
-
-## Project Structure
-
-```
-.
-├── data/                    # Directory for input images
-├── results/                 # Output directory for inpainting results
-│   └── inpainting_tests/   # Individual test results
-├── models/                  # Pre-trained models
-├── external/               # External dependencies (SAM)
-├── guided-diffusion/       # Core diffusion implementation
-└── src/                    # Source code
-    ├── magic_eraser.py    # Main script for end users
-    ├── prepare_masks.py   # Mask generation utilities
-    └── run_inpainting.py  # Inpainting pipeline
-```
+2. **Interactive Interface**:
+   - Simple command-line interface
+   - Visual feedback for mask selection
+   - Multiple mask options for best results
+   - Progress visualization through evolution GIFs
 
 ## Quick Start
 
 1. **Setup**:
    ```bash
-   # Clone the repository
+   # Clone the repository and switch to DDIM branch
    git clone [repository-url]
    cd [repository-name]
+   git checkout ddim
 
    # Install dependencies
    pip install -r requirements.txt
 
-   # Download models
+   # Download required models
    # - SAM checkpoint (sam_vit_h_4b8939.pth) should be in models/
    # - Diffusion model (256x256_diffusion_uncond.pt) should be in models/
    ```
@@ -69,62 +49,73 @@ The core of our implementation lies in the `gaussian_diffusion.py` module where 
    python src/magic_eraser.py
    ```
 
+   The script will prompt you for:
+   - Image selection
+   - Number of sampling steps (T) - recommended range: 20-200
+   - Number of iterations (U) - recommended range: 1-10
+
 3. **Results**:
-   - Results will be saved in `results/inpainting_tests/[image_name]/`
-   - You'll find:
-     - `mask.png`: The generated mask
-     - `inpainted.png`: The final inpainted result
-     - `evolution.gif`: The inpainting process visualization
+   Results will be saved in `results/inpainting_tests/[image_name]/`:
+   - `mask.png`: The generated mask
+   - `inpainted.png`: The final inpainted result
+   - `evolution.gif`: Visualization of the inpainting process
 
-## Implementation Details
+## Parameter Guide
 
-### RePaint Algorithm
+### DDIM Parameters
 
-Our implementation of RePaint focuses on the resampling strategy for masked regions. The key components are:
+1. **Sampling Steps (T)**:
+   - Range: 20-200 steps
+   - Lower values (20-50): Faster but potentially lower quality
+   - Higher values (100-200): Better quality but slower
+   - Default recommendation: 50 steps for a good speed/quality balance
 
-1. **Resampling Strategy**:
-   - Parameter U controls how many times each timestep is resampled
-   - Higher U values generally lead to better results but longer computation time
-   - Default U=10 provides a good balance of quality and speed
+2. **Iterations (U)**:
+   - Range: 1-10 iterations
+   - Lower values (1-3): Faster, suitable for simple masks
+   - Higher values (5-10): Better for complex masks
+   - Default recommendation: U=5 for most cases
 
-2. **Mask Handling**:
-   - Known regions are preserved through the sampling process
-   - Unknown (masked) regions are resampled U times
-   - Gradual transition between known and unknown regions through mask dilation
+### Mask Generation
 
-### DDIM Integration
+The SAM-based mask generation offers:
+- Interactive point selection
+- Multiple mask options
+- Adjustable mask dilation
+- Option to retry if not satisfied
 
-We also implement DDIM sampling which offers:
-- Faster sampling compared to DDPM
-- Deterministic sampling path
-- Fewer required sampling steps
+## Comparison with DDPM Branch
+
+This DDIM branch differs from the main (DDPM) branch in several ways:
+
+| Feature           | DDIM Branch (This)     | DDPM Branch (Main)     |
+|------------------|------------------------|----------------------|
+| Sampling Steps   | 20-200 (configurable) | Fixed 1000 steps    |
+| Speed            | 5-50x faster          | Standard speed      |
+| Deterministic    | Yes                   | No                  |
+| Memory Usage     | Lower                 | Higher              |
+| Quality         | Good                  | Slightly better     |
 
 ## Advanced Usage
 
 For advanced users who want to experiment with different parameters:
 
-1. **Mask Generation**:
+1. **Batch Testing**:
    ```bash
-   python src/prepare_masks.py
+   python src/run_ddim_test.py
    ```
-   - Interactive mask selection using SAM
-   - Adjustable mask dilation
-
-2. **Batch Processing**:
-   ```bash
-   python src/run_inpainting.py
-   ```
-   - Process multiple images
-   - Test different U values
-   - Compare DDPM and DDIM results
+   - Test multiple T values (20, 50, 100, 200)
+   - Compare results across different parameters
+   - Automated processing of multiple images
 
 ## Results
 
-[To be added: Example results and comparisons]
+[To be added: Example results showing DDIM performance at different T values]
 
 ## Acknowledgments
 
 This project builds upon several key works:
 - [Guided Diffusion](https://github.com/openai/guided-diffusion)
+- [DDIM Paper](https://arxiv.org/abs/2010.02502)
 - [RePaint Paper](https://arxiv.org/abs/2201.09865)
 - [Segment Anything Model](https://segment-anything.com/)
