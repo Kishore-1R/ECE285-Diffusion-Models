@@ -82,9 +82,20 @@ def process_image(
     print("6. Type 'retry' if you want to try again")
     print("7. Type 'quit' to exit the program")
 
+    def cleanup_temp_files():
+        """Clean up temporary files from mask generation"""
+        temp_files = ["current_image.png"] + [f"mask_{i}.png" for i in range(3)]
+        for f in temp_files:
+            try:
+                if os.path.exists(f):
+                    os.remove(f)
+            except Exception as e:
+                print(f"Warning: Could not remove temporary file {f}: {e}")
+
     while True:
         # Generate mask
         if selector.process_single_image(image_path) == "quit":
+            cleanup_temp_files()
             print("\nExiting program...")
             sys.exit(0)
 
@@ -103,6 +114,11 @@ def process_image(
             if test_dir.exists():
                 print(f"\nRunning inpainting with {sampler_type.upper()}...")
                 print("The process cannot be interrupted without losing progress.")
+
+                # Create descriptive output directory name
+                output_subdir = f"{sampler_type}_U{U}_T{T_sampling}"
+                test_dir = test_dir / output_subdir
+
                 run_inpainting(
                     test_dir,
                     model,
@@ -117,15 +133,11 @@ def process_image(
                 print("- mask.png: The mask used for removal")
                 print("- inpainted.png: The final result")
                 print("- evolution.gif: The inpainting process")
+                cleanup_temp_files()
                 break
         else:
             print("\nLet's try selecting the object again...")
-            # Clean up temporary files
-            for f in ["current_image.png"] + [f"mask_{i}.png" for i in range(3)]:
-                try:
-                    os.remove(f)
-                except:
-                    pass
+            cleanup_temp_files()
 
 
 def main():
@@ -224,6 +236,11 @@ def main():
     if use_existing:
         print(f"\nRunning inpainting with {sampler_choice.upper()}...")
         print("The process cannot be interrupted without losing progress.")
+
+        # Create descriptive output directory name
+        output_subdir = f"{sampler_choice}_U{U}_T{T_sampling}"
+        test_dir = test_dir / output_subdir
+
         run_inpainting(
             test_dir,
             model,
