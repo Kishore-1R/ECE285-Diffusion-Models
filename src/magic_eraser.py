@@ -3,9 +3,13 @@ import os
 from pathlib import Path
 import time
 
-# Add the project root to Python path
+import global_vars as gv
+
+# Add the project root and guided-diffusion to Python path
 current_dir = Path(__file__).parent.parent
 sys.path.append(str(current_dir))
+guided_diffusion_path = current_dir / "guided-diffusion"
+sys.path.append(str(guided_diffusion_path))
 
 # Import from our modules
 from prepare_masks import MaskSelector
@@ -54,9 +58,19 @@ def setup_model():
     return model, diffusion
 
 
-def process_image(image_path, selector, model, diffusion, results_dir):
+def process_image(
+    image_path,
+    selector,
+    model,
+    diffusion,
+    results_dir,
+    sampler_type="ddpm",
+    T_sampling=1000,
+    U=10,
+):
     """Process a single image with user verification"""
     print(f"\nProcessing {image_path.name}")
+
     print("\nInstructions for object removal:")
     print("1. A new png image will be created")
     print("2. Select points on the object you want to remove")
@@ -87,15 +101,17 @@ def process_image(image_path, selector, model, diffusion, results_dir):
             # Run inpainting
             test_dir = results_dir / "inpainting_tests" / image_path.stem
             if test_dir.exists():
-                print("\nRunning inpainting with DDPM...")
+                print(f"\nRunning inpainting with {sampler_type.upper()}...")
                 print("The process cannot be interrupted without losing progress.")
                 run_inpainting(
                     test_dir,
                     model,
                     diffusion,
                     device=dist_util.dev(),
-                    sampler_type="ddpm",
-                    U=10,
+                    sampler_type=sampler_type,
+                    U=U,
+                    eta=gv.eta,
+                    T_sampling=T_sampling,
                 )
                 print(f"\nResults saved in: {test_dir}")
                 print("- mask.png: The mask used for removal")
@@ -142,16 +158,97 @@ def main():
             break
         print(f"Error: {filename} not found in data/ directory. Please try again.")
 
-    # Initialize mask selector
-    print("\nInitializing Segment Anything Model...")
-    selector = MaskSelector(data_dir, results_dir, dilation_size=5)
+    # Ask user for sampler choice
+    while True:
+        sampler_choice = input("\nChoose sampler type (ddpm/ddim): ").lower()
+        if sampler_choice in ["ddpm", "ddim"]:
+            break
+        print("Error: Please enter either 'ddpm' or 'ddim'")
+
+    # Set sampling parameters based on choice
+    if sampler_choice == "ddpm":
+        print("\nNote: DDPM requires 1000 sampling steps and may take a while.")
+        proceed = input("Do you want to continue? (yes/no): ").lower()
+        if proceed != "yes":
+            print("\nExiting program...")
+            return
+        T_sampling = 1000
+        U = 10  # Default U value for DDPM
+    else:  # DDIM
+        while True:
+            try:
+                T_sampling = int(
+                    input(
+                        "\nEnter number of sampling steps for DDIM (recommended: less than 50 for speedup): "
+                    )
+                )
+                if T_sampling > 0:
+                    break
+                print("Error: Number of steps must be positive.")
+            except ValueError:
+                print("Error: Please enter a valid number.")
+
+    # Ask for U value (resampling steps)
+    while True:
+        try:
+            U = int(input("\nEnter number of resampling steps (U) (recommended: 10): "))
+            if U > 0:
+                break
+            print("Error: U must be positive.")
+        except ValueError:
+            print("Error: Please enter a valid number.")
+
+    # Check if mask and original image already exist
+    test_dir = results_dir / "inpainting_tests" / image_path.stem
+    mask_path = test_dir / "mask.png"
+    original_path = test_dir / "original.png"
+
+    use_existing = False
+    if mask_path.exists() and original_path.exists():
+        print("\nFound existing mask and original image.")
+        proceed = input("Would you like to use the existing mask? (yes/no): ").lower()
+        if proceed == "yes":
+            use_existing = True
 
     # Load diffusion model
     print("\nLoading diffusion model...")
     model, diffusion = setup_model()
 
+    # Only initialize SAM if we're not using existing mask
+    selector = None
+    if not use_existing:
+        print("\nInitializing Segment Anything Model...")
+        selector = MaskSelector(data_dir, results_dir, dilation_size=5)
+
     # Process the selected image
-    process_image(image_path, selector, model, diffusion, results_dir)
+    if use_existing:
+        print(f"\nRunning inpainting with {sampler_choice.upper()}...")
+        print("The process cannot be interrupted without losing progress.")
+        run_inpainting(
+            test_dir,
+            model,
+            diffusion,
+            device=dist_util.dev(),
+            sampler_type=sampler_choice,
+            U=U,
+            eta=gv.eta,
+            T_sampling=T_sampling,
+        )
+        print(f"\nResults saved in: {test_dir}")
+        print("- mask.png: The mask used for removal")
+        print("- inpainted.png: The final result")
+        print("- evolution.gif: The inpainting process")
+    else:
+        process_image(
+            image_path,
+            selector,
+            model,
+            diffusion,
+            results_dir,
+            sampler_type=sampler_choice,
+            T_sampling=T_sampling,
+            U=U,
+        )
 
     print("\nImage processed successfully!")
     print("Check the results/ directory for your processed image.")

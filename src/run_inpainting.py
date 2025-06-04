@@ -1,6 +1,12 @@
 import sys
 import os
 from pathlib import Path
+
+# Add the parent directory to Python path to find guided_diffusion
+current_dir = Path(__file__).resolve().parent
+parent_dir = current_dir.parent
+sys.path.append(str(parent_dir))
+
 import numpy as np
 import torch
 from PIL import Image
@@ -50,7 +56,7 @@ def save_gif(frames, path, fps=10):
     frames = [(frame * 127.5 + 127.5).clip(0, 255).astype(np.uint8) for frame in frames]
     imageio.mimsave(path, frames, fps=fps)
 
-def run_inpainting(image_dir, model, diffusion, device, sampler_type="ddpm", U=1):
+def run_inpainting(image_dir, model, diffusion, device, sampler_type="ddpm", U=1, eta=0.15, T_sampling=1000):
     """Run inpainting for a single configuration"""
     # Load image and mask
     image_path = image_dir / "original.png"
@@ -69,7 +75,8 @@ def run_inpainting(image_dir, model, diffusion, device, sampler_type="ddpm", U=1
     model_kwargs = {
         "sampler_type": sampler_type,
         "U": U,
-        "eta": 0.15,
+        "eta": eta,
+        "T_sampling": T_sampling 
     }
     
     # Run diffusion (keep in fp16)

@@ -582,7 +582,8 @@ class GaussianDiffusion:
         masked_input = measurement.detach()
 
         # generate time schedule
-        times = range(0, self.num_timesteps)  # Use all timesteps for DDPM
+        skip = self.num_timesteps // T_sampling
+        times = range(0, self.num_timesteps, skip) 
         times_next = [-1] + list(times[:-1])
         times_pair = zip(reversed(times), reversed(times_next))
 
@@ -616,7 +617,7 @@ class GaussianDiffusion:
                 else: 
                     eps = 0
                 xt_next_known = (
-                    th.sqrt(abar_t) * masked_input + (1.0 - abar_t) * eps
+                    th.sqrt(abar_t_next) * masked_input + th.sqrt(1.0 - abar_t_next) * eps
                 )
 
                 # Step 2: Denoise
@@ -631,8 +632,15 @@ class GaussianDiffusion:
                     noise = th.randn_like(xt) if j != 0 else 0
                     
                     xt_next_unknown = factor1 * (xt - factor2 * et) + sigma_t * noise
+
+                    # Step 3: Add known and unknown
+                    xt_next = mask * xt_next_known + (1.0 - mask) * xt_next_unknown
+
+                    if u < U and i > 1:
+                        noise = th.randn_like(xt)
+                        xt = th.sqrt(1 - bt) * xt_next + th.sqrt(bt) * noise
                 else:
-                    # DDIM denoising (keeping as fallback)
+                    # DDIM denoising 
                     x0_t = (xt - et * (1 - abar_t).sqrt()) / abar_t.sqrt()
                     noise = th.randn_like(x0_t)
                     c1 = (1 - abar_t_next).sqrt() * eta
@@ -643,14 +651,15 @@ class GaussianDiffusion:
                     else:
                         xt_next_unknown = x0_t 
 
-                # Step 3: Add known and unknown
-                xt_next = mask * xt_next_known + (1.0 - mask) * xt_next_unknown
+                    # Step 3: Add known and unknown
+                    xt_next = mask * xt_next_known + (1.0 - mask) * xt_next_unknown
 
-                if u < U and i > 1:
-                    # Renoising step using RePaint's approach
-                    noise = th.randn_like(xt)
-                    xt = th.sqrt(1 - bt) * xt_next + th.sqrt(bt) * noise
-                    # xt = th.sqrt(1 - bt) * xt_next + bt * noise
+                    if u < U and i > 1:
+                        # Renoising step using DDIM's approach
+                        noise = th.randn_like(xt)
+                        factor1 = th.sqrt(abar_t / abar_t_next)
+                        factor2 = th.sqrt(1 - (abar_t / abar_t_next))
+                        xt = factor1 * xt_next + factor2 * noise
             
             xs.append(xt_next)
 
