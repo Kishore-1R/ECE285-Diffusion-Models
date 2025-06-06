@@ -128,7 +128,36 @@ For advanced users who want to experiment with different parameters:
 
 ## Results
 
-[To be added: Example results showing DDIM performance at different T values]
+### Summary Animation
+![Results Summary](results/inpainting_tests/results_summary.gif)
+
+This animation shows a sequence of our inpainting results. For each example:
+1. Original image
+2. Region to be inpainted (highlighted in red)
+3. Final inpainted result
+
+### Detailed Comparisons
+
+#### DDPM vs DDIM Comparison
+![DDPM Results](results/inpainting_tests/ddpm_inpainting_comparison.png)
+*DDPM results with different U values (1000 timesteps)*
+
+![DDIM Results](results/inpainting_tests/ddim_comparison.png)
+*DDIM results with different T values (much fewer timesteps)*
+
+#### Process Visualization
+![Inpainting Process](results/inpainting_tests/image_09/process.gif)
+
+This GIF shows the complete inpainting process:
+1. Original image
+2. Mask overlay showing the region to be inpainted
+3. Evolution of the inpainting process from noise to final result
+
+### Key Findings
+- DDIM achieves comparable or better results in just 20 iterations (~20 seconds)
+- DDPM requires 1000 iterations (>15 minutes) for similar results
+- Successfully adapted RePaint's algorithm to work with DDIM sampling
+- Interactive applications become feasible with DDIM's speed
 
 ## Acknowledgments
 
