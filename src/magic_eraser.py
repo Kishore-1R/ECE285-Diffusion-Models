@@ -68,19 +68,15 @@ def process_image(
     T_sampling=1000,
     U=10,
 ):
-    """Process a single image with user verification"""
-    print(f"\nProcessing {image_path.name}")
+    """Process a single image with the given parameters"""
+    # Create test directory
+    test_dir = results_dir / "inpainting_tests" / image_path.stem
+    test_dir.mkdir(parents=True, exist_ok=True)
 
-    print("\nInstructions for object removal:")
-    print("1. A new png image will be created")
-    print("2. Select points on the object you want to remove")
-    print("   - Select points inside the object (default: positive points)")
-    print("   - Add negative points outside by typing 'x,y,0' if needed")
-    print("3. Type 'done' when you're satisfied with the points")
-    print("4. Three mask options (0-2) will be saved as 'mask_[0-2].png'")
-    print("5. Review these masks and select the best one (0-2)")
-    print("6. Type 'retry' if you want to try again")
-    print("7. Type 'quit' to exit the program")
+    # Create descriptive output directory name
+    output_subdir = f"{sampler_type}_U{U}_T{T_sampling}"
+    output_dir = test_dir / output_subdir
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     def cleanup_temp_files():
         """Clean up temporary files from mask generation"""
@@ -110,31 +106,41 @@ def process_image(
         ).lower()
         if proceed == "yes":
             # Run inpainting
-            test_dir = results_dir / "inpainting_tests" / image_path.stem
-            if test_dir.exists():
-                print(f"\nRunning inpainting with {sampler_type.upper()}...")
-                print("The process cannot be interrupted without losing progress.")
+            print(f"\nRunning inpainting with {sampler_type.upper()}...")
+            print("The process cannot be interrupted without losing progress.")
 
-                # Create descriptive output directory name
-                output_subdir = f"{sampler_type}_U{U}_T{T_sampling}"
-                test_dir = test_dir / output_subdir
+            # Use the paths from the test_dir (parent directory), not the output_dir
+            image_path_for_inpainting = test_dir / "original.png"
+            mask_path_for_inpainting = test_dir / "mask.png"
 
-                run_inpainting(
-                    test_dir,
-                    model,
-                    diffusion,
-                    device=dist_util.dev(),
-                    sampler_type=sampler_type,
-                    U=U,
-                    eta=gv.eta,
-                    T_sampling=T_sampling,
+            if (
+                not image_path_for_inpainting.exists()
+                or not mask_path_for_inpainting.exists()
+            ):
+                print(f"Error: Could not find required files in {test_dir}")
+                print(
+                    f"Expected: {image_path_for_inpainting} and {mask_path_for_inpainting}"
                 )
-                print(f"\nResults saved in: {test_dir}")
-                print("- mask.png: The mask used for removal")
-                print("- inpainted.png: The final result")
-                print("- evolution.gif: The inpainting process")
                 cleanup_temp_files()
                 break
+
+            run_inpainting(
+                output_dir=output_dir,
+                model=model,
+                diffusion=diffusion,
+                device=dist_util.dev(),
+                sampler_type=sampler_type,
+                U=U,
+                eta=gv.eta,
+                T_sampling=T_sampling,
+                image_path=image_path_for_inpainting,
+                mask_path=mask_path_for_inpainting,
+            )
+            print(f"\nResults saved in: {output_dir}")
+            print("- inpainted.png: The final result")
+            print("- evolution.gif: The inpainting process")
+            cleanup_temp_files()
+            break
         else:
             print("\nLet's try selecting the object again...")
             cleanup_temp_files()
@@ -239,20 +245,35 @@ def main():
 
         # Create descriptive output directory name
         output_subdir = f"{sampler_choice}_U{U}_T{T_sampling}"
-        test_dir = test_dir / output_subdir
+        output_dir = test_dir / output_subdir
+
+        # Use the paths from test_dir for input files
+        image_path_for_inpainting = test_dir / "original.png"
+        mask_path_for_inpainting = test_dir / "mask.png"
+
+        if (
+            not image_path_for_inpainting.exists()
+            or not mask_path_for_inpainting.exists()
+        ):
+            print(f"Error: Could not find required files in {test_dir}")
+            print(
+                f"Expected: {image_path_for_inpainting} and {mask_path_for_inpainting}"
+            )
+            return
 
         run_inpainting(
-            test_dir,
-            model,
-            diffusion,
+            output_dir=output_dir,
+            model=model,
+            diffusion=diffusion,
             device=dist_util.dev(),
             sampler_type=sampler_choice,
             U=U,
             eta=gv.eta,
             T_sampling=T_sampling,
+            image_path=image_path_for_inpainting,
+            mask_path=mask_path_for_inpainting,
         )
-        print(f"\nResults saved in: {test_dir}")
-        print("- mask.png: The mask used for removal")
+        print(f"\nResults saved in: {output_dir}")
         print("- inpainted.png: The final result")
         print("- evolution.gif: The inpainting process")
     else:
