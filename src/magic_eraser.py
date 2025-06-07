@@ -13,7 +13,7 @@ sys.path.append(str(guided_diffusion_path))
 
 # Import from our modules
 from prepare_masks import MaskSelector
-from run_inpainting import load_and_resize, run_inpainting
+from run_ddpm_test import load_and_resize, run_inpainting
 from guided_diffusion import dist_util
 from guided_diffusion.script_util import (
     model_and_diffusion_defaults,

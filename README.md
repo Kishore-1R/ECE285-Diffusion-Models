@@ -2,18 +2,26 @@
 
 This project implements image inpainting using diffusion models, offering both RePaint's DDPM sampling and accelerated DDIM sampling. We build upon the guided-diffusion framework and integrate SAM (Segment Anything Model) for interactive mask generation, creating a powerful and user-friendly inpainting solution.
 
+## Performance Benchmarks (NVIDIA A40 GPU)
+
+| Method | Steps | Time per Image | Quality |
+|--------|-------|----------------|----------|
+| DDPM   | 1000  | ~15 minutes    | Highest  |
+| DDIM   | 20-50 | <20 seconds    | Excellent|
+
 ## Project Overview
 
 Our implementation combines three key technologies:
 
 1. **RePaint Implementation (DDPM)**:
    - Full 1000-step diffusion for highest quality results
-   - Resampling strategy for complex inpainting (~14 minutes per image)
+   - Resampling strategy for complex inpainting
    - Ideal for challenging cases requiring maximum quality
+   - Runtime: ~15 minutes per image on NVIDIA A40
 
 2. **DDIM Fast Sampling**:
    - Accelerated sampling with as few as 20 steps
-   - Excellent results in under 20 seconds
+   - Excellent results in under 20 seconds on NVIDIA A40
    - Perfect for quick iterations and real-time applications
 
 3. **Interactive Mask Generation**:
