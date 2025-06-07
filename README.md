@@ -1,4 +1,4 @@
-# Image Inpainting with RePaint and DDIM
+# Magic Eraser: Image Inpainting with RePaint and DDIM
 
 This project implements image inpainting using diffusion models, offering both RePaint's DDPM sampling and accelerated DDIM sampling. We build upon the guided-diffusion framework and integrate SAM (Segment Anything Model) for interactive mask generation, creating a powerful and user-friendly inpainting solution.
 
