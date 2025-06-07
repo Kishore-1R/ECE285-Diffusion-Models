@@ -2,7 +2,7 @@
 
 This project implements image inpainting using diffusion models, offering both RePaint's DDPM sampling and accelerated DDIM sampling. We build upon the guided-diffusion framework and integrate SAM (Segment Anything Model) for interactive mask generation, creating a powerful and user-friendly inpainting solution.
 
-![Inpainting Process](results/inpainting_tests/image_09/process.gif)
+![Inpainting Process](results/inpainting_tests/image_09/process.gif) ![Results Summary](results/inpainting_tests/results_summary.gif)
 
 ## Performance Benchmarks (NVIDIA A40 GPU)
 
@@ -111,18 +111,6 @@ The SAM-based mask generation offers:
 - Multiple mask options
 - Adjustable mask dilation
 - Option to retry if not satisfied
-
-## Comparison with DDPM Branch
-
-This DDIM branch differs from the main (DDPM) branch in several ways:
-
-| Feature           | DDIM Branch (This)     | DDPM Branch (Main)     |
-|------------------|------------------------|----------------------|
-| Sampling Steps   | 20-200 (configurable) | Fixed 1000 steps    |
-| Speed            | 5-50x faster          | Standard speed      |
-| Deterministic    | Yes                   | No                  |
-| Memory Usage     | Lower                 | Higher              |
-| Quality         | Good                  | Slightly better     |
 
 ## Advanced Usage
 
