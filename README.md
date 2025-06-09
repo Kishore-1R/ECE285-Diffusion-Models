@@ -6,6 +6,8 @@ A detailed project report is included in `docs/`
 
 ![Inpainting Process](results/inpainting_tests/image_09/process.gif) ![Results Summary](results/inpainting_tests/results_summary.gif)
 
+Link to the presentation: [ECE 285 Video Presentation](https://drive.google.com/file/d/1VLxTj3iJ-9snbYQ_wxkLmUL1C4YyXPiW/view?usp=drive_link)
+
 ## Performance Benchmarks (NVIDIA A40 GPU)
 
 | Method | Steps | Time per Image | Quality |
